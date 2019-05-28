@@ -19,12 +19,16 @@ const char* ota_password = "onkar20";
 const int dirPin = 5;
 const int stepPin = 4;
 const int enablePin = 2;
-
-const int lightPin = 2;
+const int leftLimitSw = 12;
+const int rightLimitSw = 13;
+const int leftSw = 16;
+const int rightSw = 14;
+const int rotationSpeed = 1000;
 
 char msg[50];
 int stepper_direction = 0;
-int rotationSpeed = 1000;
+int masterStep = 0;
+int maxSteps = 0;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -34,15 +38,26 @@ void setup() {
   Serial.begin(115200);
   setup_wifi();
   setup_OTA();
-  pinMode(lightPin, OUTPUT);
+  
   pinMode(stepPin, OUTPUT);
   pinMode(dirPin, OUTPUT);
   pinMode(enablePin, OUTPUT);
   
+  pinMode(leftLimitSw, INPUT);
+  digitalWrite(leftLimitSw, HIGH);
+
+  pinMode(rightLimitSw, INPUT);
+  digitalWrite(rightLimitSw, HIGH);
+
+  pinMode(leftSw, INPUT);
+  digitalWrite(leftSw, HIGH);
+
+  pinMode(rightSw, INPUT);
+  digitalWrite(rightSw, HIGH);
+  
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
-  digitalWrite(lightPin, LOW);
-  digitalWrite(enablePin, HIGH);
+  calibration();
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -92,10 +107,8 @@ void setup_wifi() {
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
-    digitalWrite(lightPin, !digitalRead(lightPin));
   }
 
-  digitalWrite(lightPin, HIGH);
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
@@ -111,32 +124,26 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
   Serial.println();
 
-  if (strcmp(topic,"home/livingRoom/windowBlind/command")==0)
-  {
-    // 0 = stop
-    if ((char)payload[0] == '0') 
-    {
-      stepper_direction = 0;
-      client.publish("home/livingRoom/windowBlind/state", "0");
-    }
-    // 1 = left
-    else if ((char)payload[0] == '1')
-    {
-      stepper_direction = 1;
-      client.publish("home/livingRoom/windowBlind/state", "1");
-    }
-    // 2 = left
-    else if ((char)payload[0] == '2')
-    {
-      stepper_direction = 2;
-      client.publish("home/livingRoom/windowBlind/state", "2");
-    }
-  }
+  int blindPosition = ((char*)payload).toInt();
 
-  if (strcmp(topic,"home/livingRoom/windowBlind/speed")==0)
+  int nextSteps = blindPosition * maxSteps;
+  
+  if ((char)payload[0] == '0') 
   {
-    String speedString = (char*)payload;
-    rotationSpeed = speedString.toInt();
+    stepper_direction = 0;
+    client.publish("home/livingRoom/windowBlind/state", "0");
+  }
+  // 1 = left
+  else if ((char)payload[0] == '1')
+  {
+    stepper_direction = 1;
+    client.publish("home/livingRoom/windowBlind/state", "1");
+  }
+  // 2 = left
+  else if ((char)payload[0] == '2')
+  {
+    stepper_direction = 2;
+    client.publish("home/livingRoom/windowBlind/state", "2");
   }
 }
 
@@ -149,7 +156,6 @@ void reconnect() {
     if (client.connect(mqtt_device_name, mqtt_uname, mqtt_pass)) {
       Serial.println("connected");
       client.subscribe("home/livingRoom/windowBlind/command");
-      client.subscribe("home/livingRoom/windowBlind/speed");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -157,16 +163,6 @@ void reconnect() {
       // Wait 5 seconds before retrying
       delay(5000);
     }
-  }
-}
-
-//---------------------------------------------------------------------------------------------------
-void blinkLED (int noOfTimes) {
-  for(int i=0; i< noOfTimes; i++) {
-    digitalWrite(lightPin, LOW);
-    delay(100);
-    digitalWrite(lightPin, HIGH);
-    delay(100);
   }
 }
 
@@ -191,7 +187,6 @@ void rotateStepper(int steps)
 
   for(int i = 0; i <= abs(steps); i++)
   {
-    // These four lines result in 1 step:
     digitalWrite(stepPin, HIGH);
     delayMicroseconds(rotationSpeed);
     digitalWrite(stepPin, LOW);
@@ -199,6 +194,41 @@ void rotateStepper(int steps)
   }
   digitalWrite(enablePin, HIGH);
 }
+
+//*********************************************************************************
+void calibration()
+{
+  // Enable stepper driver
+  digitalWrite(enablePin, LOW);
+  // Set direction to counterclock
+  digitalWrite(dirPin, HIGH);
+
+  // Run the loop untill limit SW hit
+  while(digitalRead(leftLimitSw))
+  {
+    digitalWrite(stepPin, HIGH);
+    delayMicroseconds(rotationSpeed);
+    digitalWrite(stepPin, LOW);
+    delayMicroseconds(rotationSpeed);
+  }
+  //Set master steps to 0, and start counting from here.
+  masterStep = 0;
+
+  // Set direction to clockwise
+  digitalWrite(dirPin, LOW);
+  int localSteps = 0;
+  // Run the loop untill limit SW hit
+  while(digitalRead(rightLimitSw))
+  {
+    digitalWrite(stepPin, HIGH);
+    delayMicroseconds(rotationSpeed);
+    digitalWrite(stepPin, LOW);
+    delayMicroseconds(rotationSpeed);
+    ++localSteps;
+  }
+  maxSteps = localSteps;
+}
+
 //----------------------------------------------------------------------------------------------------
 void loop() {
   ArduinoOTA.handle();
