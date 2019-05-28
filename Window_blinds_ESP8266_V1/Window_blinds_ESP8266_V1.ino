@@ -29,6 +29,17 @@ char msg[50];
 int masterStep = 0;
 int maxSteps = 0;
 
+unsigned long leftButtonPressedTime;
+unsigned long leftButtonReleasedTime;
+bool leftButtonPressedFlag = false;
+
+unsigned long rightButtonPressedTime;
+unsigned long rightButtonReleasedTime;
+bool rightButtonPressedFlag = false;
+
+// long press time for button press
+const unsigned long longPressTime = 1000;
+
 WiFiClient espClient;
 PubSubClient client(espClient);
 
@@ -198,6 +209,16 @@ bool isRightLimitReached()
   return !(digitalRead(rightLimitSw));
 }
 //----------------------------------------------------------------------------------------------------
+bool isLeftButtonPressed()
+{
+  return !(digitalRead(leftSw));
+}
+//----------------------------------------------------------------------------------------------------
+bool isRightButtonPressed()
+{
+  return !(digitalRead(rightSw));
+}
+//----------------------------------------------------------------------------------------------------
 void oneStep()
 {
   // Rotate stepper one step
@@ -253,8 +274,8 @@ void rotateStepper(int requestedSteps)
     directionLeft();
     int currentSteps = 0;
     int absRequestedSteps = abs(requestedSteps);
-    // Rotate the motor untill we reach to desired step or at the left limit
-    while( (currentSteps < absRequestedSteps) || (!isLeftLimitReached()) )
+    // Rotate the motor untill we reach to desired step or at the left limit or if right button is pressed to stop
+    while( (currentSteps < absRequestedSteps) || (!isLeftLimitReached()) || (!isRightButtonPressed()) )
     {
       oneStep();
       ++currentSteps;
@@ -269,8 +290,8 @@ void rotateStepper(int requestedSteps)
     directionRight();
     int currentSteps = 0;
     int absRequestedSteps = abs(requestedSteps);
-    // Rotate the motor untill we reach to desired step or at the right limit
-    while( (currentSteps < absRequestedSteps) || (!isRightLimitReached()) )
+    // Rotate the motor untill we reach to desired step or at the right limit or if left button is pressed to stop
+    while( (currentSteps < absRequestedSteps) || (!isRightLimitReached()) || (!isLeftButtonPressed()) )
     {
       oneStep();
       ++currentSteps;
@@ -290,8 +311,80 @@ void loop() {
   }
 
   // --------------- Application code ---------------------
-
+  // -------------- Left button code ---------------------
+  // Left button just pressed, and right button is not pressed
+  if(isLeftButtonPressed() && !leftButtonPressedFlag && !rightButtonPressedFlag)
+  {
+    leftButtonPressedTime = millis();
+    leftButtonPressedFlag = true;
+    // if button pressed quickly after recent release, that means it is double press
+    if((leftButtonPressedTime - leftButtonReleasedTime) < 500)
+    {
+      // Set the blinds all the way to left
+      rotateStepper( 0 - masterStep );
+    }
+  }
+  // Button pressed earlier, but not released
+  else if(isLeftButtonPressed() && leftButtonPressedFlag)
+  {
+    // If button pressed for longer time, then start moving the blinds to left until button is pressed
+    if( (millis() - leftButtonPressedTime) > longPressTime)
+    {
+      directionLeft();
+      enableStepper();
+      oneStep();
+    }
+    // Do nothing
+    else
+    {}
+  }
+  // button just released 
+  else if(!isLeftButtonPressed() && leftButtonPressedFlag)
+  {
+    leftButtonReleasedTime = millis();
+    leftButtonPressedFlag = false;
+    disableStepper();
+  }
+  // -------------- End of Left button code ---------------------
+//----------------------------------------------------------------------------
+  // -------------- Right button code ---------------------
+  // Right button just pressed, and left button is not pressed 
+  if(isRightButtonPressed() && !rightButtonPressedFlag && !leftButtonPressedFlag)
+  {
+    rightButtonPressedTime = millis();
+    rightButtonPressedFlag = true;
+    // if button pressed quickly after recent release, that means it is double press
+    if((rightButtonPressedTime - rightButtonReleasedTime) < 500)
+    {
+      // Set the blinds all the way to right
+      rotateStepper( maxSteps - masterStep );
+    }
+  }
+  // Button pressed earlier, but not released
+  else if(isRightButtonPressed() && rightButtonPressedFlag)
+  {
+    // If button pressed for longer time, then start moving the blinds to right until button is pressed
+    if( (millis() - rightButtonPressedTime) > longPressTime)
+    {
+      directionRight();
+      enableStepper();
+      oneStep();
+    }
+    // Do nothing
+    else
+    {}
+  }
+  // button just released 
+  else if(!isRightButtonPressed() && rightButtonPressedFlag)
+  {
+    rightButtonReleasedTime = millis();
+    rightButtonPressedFlag = false;
+    disableStepper();
+  }
+  // -------------- End of Right button code ---------------------
   
+  // Fixed delay of 10 mSec
+  delay(10);
   // --------------- end Application code ---------------------
   // Required!!!, this is to check for new MQTT updates from server
   client.loop();
