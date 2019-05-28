@@ -26,7 +26,6 @@ const int rightSw = 14;
 const int rotationSpeed = 1000;
 
 char msg[50];
-int stepper_direction = 0;
 int masterStep = 0;
 int maxSteps = 0;
 
@@ -39,24 +38,28 @@ void setup() {
   setup_wifi();
   setup_OTA();
   
+  // Setup DRV8825 pins as output
   pinMode(stepPin, OUTPUT);
   pinMode(dirPin, OUTPUT);
   pinMode(enablePin, OUTPUT);
   
+  // Setup limit switches
   pinMode(leftLimitSw, INPUT);
   digitalWrite(leftLimitSw, HIGH);
-
   pinMode(rightLimitSw, INPUT);
   digitalWrite(rightLimitSw, HIGH);
 
+  // setup two switches
   pinMode(leftSw, INPUT);
   digitalWrite(leftSw, HIGH);
-
   pinMode(rightSw, INPUT);
   digitalWrite(rightSw, HIGH);
   
+  // setup connection with MQTT server 
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
+  
+  // Perform initial calibration to find min and max position
   calibration();
 }
 
@@ -128,23 +131,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
   int nextSteps = blindPosition * maxSteps;
   
-  if ((char)payload[0] == '0') 
-  {
-    stepper_direction = 0;
-    client.publish("home/livingRoom/windowBlind/state", "0");
-  }
-  // 1 = left
-  else if ((char)payload[0] == '1')
-  {
-    stepper_direction = 1;
-    client.publish("home/livingRoom/windowBlind/state", "1");
-  }
-  // 2 = left
-  else if ((char)payload[0] == '2')
-  {
-    stepper_direction = 2;
-    client.publish("home/livingRoom/windowBlind/state", "2");
-  }
+  // call the rotate stepper function here with relative steps
+  
+  client.publish("home/livingRoom/windowBlind/state", payload);
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -165,43 +154,38 @@ void reconnect() {
     }
   }
 }
-
-//---------------------------------------------------------------------------------------------------
-void rotateStepper(int steps)
+//----------------------------------------------------------------------------------------------------
+void disableStepper()
 {
-  if (steps == 0)
-  {
-    digitalWrite(enablePin, HIGH);
-    return;
-  }
-  else if(steps < 0)
-  {
-    digitalWrite(enablePin, LOW);
-    digitalWrite(dirPin, LOW);
-  }
-  else if(steps > 0)
-  {
-    digitalWrite(enablePin, LOW);
-    digitalWrite(dirPin, HIGH);
-  }
-
-  for(int i = 0; i <= abs(steps); i++)
-  {
-    digitalWrite(stepPin, HIGH);
-    delayMicroseconds(rotationSpeed);
-    digitalWrite(stepPin, LOW);
-    delayMicroseconds(rotationSpeed);
-  }
+  // set enable pin high to disable stepper driver
   digitalWrite(enablePin, HIGH);
 }
+//----------------------------------------------------------------------------------------------------
+void enableStepper()
+{
+  // set enable pin to LOW to enable stepper driver
+  digitalWrite(enablePin, LOW);
+}
+//----------------------------------------------------------------------------------------------------
+void directionLeft()
+{
+  // Set direction to counterclock 
+  digitalWrite(dirPin, HIGH);
+}
+//----------------------------------------------------------------------------------------------------
+void directionRight()
+{
+  // Set direction to clockwise 
+  digitalWrite(dirPin, LOW);
+}
 
-//*********************************************************************************
+//----------------------------------------------------------------------------------------------------
 void calibration()
 {
   // Enable stepper driver
-  digitalWrite(enablePin, LOW);
-  // Set direction to counterclock
-  digitalWrite(dirPin, HIGH);
+  enableStepper();
+  // Set direction to counterclock / left
+  directionLeft();
 
   // Run the loop untill limit SW hit
   while(digitalRead(leftLimitSw))
@@ -211,11 +195,9 @@ void calibration()
     digitalWrite(stepPin, LOW);
     delayMicroseconds(rotationSpeed);
   }
-  //Set master steps to 0, and start counting from here.
-  masterStep = 0;
 
-  // Set direction to clockwise
-  digitalWrite(dirPin, LOW);
+  // Set direction to clockwise / right
+  directionRight();
   int localSteps = 0;
   // Run the loop untill limit SW hit
   while(digitalRead(rightLimitSw))
@@ -227,31 +209,61 @@ void calibration()
     ++localSteps;
   }
   maxSteps = localSteps;
+  // Since the blinds are at max position, set masterStep to max steps
+  masterStep = localSteps;
+  
+  disableStepper();
+}
+
+//---------------------------------------------------------------------------------------------------
+void rotateStepper(int steps)
+{
+  // No movement needed, disable stepper
+  if (steps == 0)
+  {
+    disableStepper();
+    return;
+  }
+  // -ve steps requested, rotate stepper to left towards -> 0
+  else if(steps < 0)
+  {
+    enableStepper();
+    directionLeft();
+  }
+  // +ve steps requested, rotate stepper to right towards -> 100
+  else if(steps > 0)
+  {
+    enableStepper();
+    directionRight();
+  }
+
+  // Send number of steps to driver
+  for(int i = 0; i <= abs(steps); i++)
+  {
+    // These 4 lines = 1 Step
+    digitalWrite(stepPin, HIGH);
+    delayMicroseconds(rotationSpeed);
+    digitalWrite(stepPin, LOW);
+    delayMicroseconds(rotationSpeed);
+  }
+  // disable stepper once movement is done to save power
+  disableStepper();
 }
 
 //----------------------------------------------------------------------------------------------------
 void loop() {
+  // This function is called to receive OTA updates
   ArduinoOTA.handle();
   
+  // if MQTT connection lost, reconnect
   if (!client.connected()) {
     reconnect();
   }
 
-  if(stepper_direction == 0)
-  {
-    rotateStepper(0);
-  }
-  else if (stepper_direction == 1)
-  {
-    rotateStepper(1);
-  }
-  else if(stepper_direction == 2)
-  {
-    rotateStepper(-1);
-  }
-  else
-  {
-    rotateStepper(0);
-  }
+  // --------------- Application code ---------------------
+
+  
+  // --------------- end Application code ---------------------
+  // Required!!!, this is to check for new MQTT updates from server
   client.loop();
 }
