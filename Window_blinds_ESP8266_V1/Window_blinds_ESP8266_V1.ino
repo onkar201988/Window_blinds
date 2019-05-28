@@ -138,7 +138,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
   Serial.println();
 
-  int blindPosition = ((char*)payload).toInt();
+  String blindPosition_str = (char*)payload;
+  int blindPosition = blindPosition_str.toInt();
+  
   // Constrain the value if it is out of range
   blindPosition = constrain(blindPosition, 0, 100);
   
@@ -151,7 +153,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   // set the masterSteps to nextPositionSteps
   masterStep = nextPositionSteps;
   
-  client.publish("home/livingRoom/windowBlind/state", payload);
+  client.publish("home/livingRoom/windowBlind/state", (char*)payload);
 }
 
 //----------------------------------------------------------------------------------------------------
