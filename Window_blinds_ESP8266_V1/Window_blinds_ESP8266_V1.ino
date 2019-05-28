@@ -128,10 +128,17 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.println();
 
   int blindPosition = ((char*)payload).toInt();
-
-  int nextSteps = blindPosition * maxSteps;
+  // Constrain the value if it is out of range
+  blindPosition = constrain(blindPosition, 0, 100);
   
-  // call the rotate stepper function here with relative steps
+  // Map the value from % to no. steps
+  int nextPositionSteps = map(blindPosition, 0, 100, 0, maxSteps);
+  
+  // send +ve or -ve steps to rotate motor to right
+  // if nextPositionSteps == masterStep, the 0 steps will be requested
+  rotateStepper(nextPositionSteps - masterStep);
+  // set the masterSteps to nextPositionSteps
+  masterStep = nextPositionSteps;
   
   client.publish("home/livingRoom/windowBlind/state", payload);
 }
@@ -178,7 +185,27 @@ void directionRight()
   // Set direction to clockwise 
   digitalWrite(dirPin, LOW);
 }
-
+//----------------------------------------------------------------------------------------------------
+bool isLeftLimitReached()
+{
+  // Return true when left limit sw is triggered
+  return !(digitalRead(leftLimitSw));
+}
+//----------------------------------------------------------------------------------------------------
+bool isRightLimitReached()
+{
+  // Return true when right limit sw is triggered
+  return !(digitalRead(rightLimitSw));
+}
+//----------------------------------------------------------------------------------------------------
+void oneStep()
+{
+  // Rotate stepper one step
+  digitalWrite(stepPin, HIGH);
+  delayMicroseconds(rotationSpeed);
+  digitalWrite(stepPin, LOW);
+  delayMicroseconds(rotationSpeed); 
+}
 //----------------------------------------------------------------------------------------------------
 void calibration()
 {
@@ -187,25 +214,19 @@ void calibration()
   // Set direction to counterclock / left
   directionLeft();
 
-  // Run the loop untill limit SW hit
-  while(digitalRead(leftLimitSw))
+  // Run the loop until left limit not reacehd
+  while(!isLeftLimitReached())
   {
-    digitalWrite(stepPin, HIGH);
-    delayMicroseconds(rotationSpeed);
-    digitalWrite(stepPin, LOW);
-    delayMicroseconds(rotationSpeed);
+    oneStep();
   }
 
   // Set direction to clockwise / right
   directionRight();
   int localSteps = 0;
-  // Run the loop untill limit SW hit
-  while(digitalRead(rightLimitSw))
+  // Run the loop until right limit not reached
+  while(!isRightLimitReached())
   {
-    digitalWrite(stepPin, HIGH);
-    delayMicroseconds(rotationSpeed);
-    digitalWrite(stepPin, LOW);
-    delayMicroseconds(rotationSpeed);
+    oneStep();
     ++localSteps;
   }
   maxSteps = localSteps;
@@ -216,38 +237,46 @@ void calibration()
 }
 
 //---------------------------------------------------------------------------------------------------
-void rotateStepper(int steps)
+void rotateStepper(int requestedSteps)
 {
   // No movement needed, disable stepper
-  if (steps == 0)
+  if (requestedSteps == 0)
   {
     disableStepper();
     return;
   }
-  // -ve steps requested, rotate stepper to left towards -> 0
-  else if(steps < 0)
+  
+  // -ve steps requested, rotate stepper to left towards -> 0%
+  else if(requestedSteps < 0)
   {
     enableStepper();
     directionLeft();
+    int currentSteps = 0;
+    int absRequestedSteps = abs(requestedSteps);
+    // Rotate the motor untill we reach to desired step or at the left limit
+    while( (currentSteps < absRequestedSteps) || (!isLeftLimitReached()) )
+    {
+      oneStep();
+      ++currentSteps;
+    }
+    disableStepper();
   }
-  // +ve steps requested, rotate stepper to right towards -> 100
-  else if(steps > 0)
+  
+  // +ve steps requested, rotate stepper to right towards -> 100%
+  else if(requestedSteps > 0)
   {
     enableStepper();
     directionRight();
+    int currentSteps = 0;
+    int absRequestedSteps = abs(requestedSteps);
+    // Rotate the motor untill we reach to desired step or at the right limit
+    while( (currentSteps < absRequestedSteps) || (!isRightLimitReached()) )
+    {
+      oneStep();
+      ++currentSteps;
+    }
+    disableStepper();
   }
-
-  // Send number of steps to driver
-  for(int i = 0; i <= abs(steps); i++)
-  {
-    // These 4 lines = 1 Step
-    digitalWrite(stepPin, HIGH);
-    delayMicroseconds(rotationSpeed);
-    digitalWrite(stepPin, LOW);
-    delayMicroseconds(rotationSpeed);
-  }
-  // disable stepper once movement is done to save power
-  disableStepper();
 }
 
 //----------------------------------------------------------------------------------------------------
