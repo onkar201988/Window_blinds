@@ -6,53 +6,50 @@ extern "C" {
 }
 
 //-------------- String declairation--------------------------
-const char* ssid = "LakeViewWiFi";
-const char* password = "P@ssLakeView";
-const char* mqtt_server = "192.168.2.12";
-const char* mqtt_uname = "onkar20";
-const char* mqtt_pass = "onkar20";
-const char* mqtt_device_name = "ESP8266WindowBlind1";
-const char* ota_device_name = "Living_Room_Window_Blind";
-const char* ota_password = "onkar20";
+const char* ssid                = "LakeViewWiFi";
+const char* password            = "P@ssLakeView";
+const char* mqtt_server         = "192.168.2.12";
+const char* mqtt_uname          = "onkar20";
+const char* mqtt_pass           = "onkar20";
+const char* mqtt_device_name    = "ESP8266WindowBlind1";
+const char* ota_device_name     = "Living_Room_Window_Blind";
+const char* ota_password        = "onkar20";
 
-//-------------variable declaration
-const int dirPin = 5;
-const int stepPin = 4;
-const int enablePin = 2;
-const int leftLimitSw = 12;
-const int rightLimitSw = 13;
-const int leftSw = 16;
-const int rightSw = 14;
-const int rotationSpeed = 1000;
+//-------------variable declaration ---------------------------------------------
+//-------Pin declaration---------------
+const int dirPin          = 5;
+const int stepPin         = 4;
+const int enablePin       = 2;
+const int leftLimitSw     = 12;
+const int rightLimitSw    = 13;
+const int leftSw          = 16;
+const int rightSw         = 14;
 
+//------------ Global variables -------
 char msg[50];
-int masterStep = 0;
-int requestedSteps = 0;
-int currentSteps = 0;
-int maxSteps = 0;
+int masterStep            = 0;  // Holds the current position of motor in steps
+int requestedSteps        = 0;  // Number of steps to left or right requested
+int currentSteps          = 0;  // Current counter of steps, to reach requestedSteps
+int maxSteps              = 0;  // Right limit for motor in steps
 
-unsigned long leftButtonPressedTime;
-unsigned long leftButtonReleasedTime;
-bool leftButtonPressedFlag = false;
+unsigned long leftButtonPressedTime;  // Time stamp when button is pressed
+unsigned long leftButtonReleasedTime; // Time stamp when button is released
+bool leftButtonPressedFlag = false;   // Flag to store when button is pressed
 
-unsigned long rightButtonPressedTime;
-unsigned long rightButtonReleasedTime;
-bool rightButtonPressedFlag = false;
+unsigned long rightButtonPressedTime;   // Time stamp when button is pressed
+unsigned long rightButtonReleasedTime;  // Time stamp when button is released
+bool rightButtonPressedFlag = false;    // Flag to store when button is pressed
 
+//-------- Global const parameters ------------
 // long press time for button press
-const unsigned long longPressTime = 1000;
+const unsigned long longPressTime   = 1000; // Time for switch must be pressed
+const int rotationSpeed             = 1000; // Delay between two steps
 
-//------------------------- State machine variables -------------------------------
-enum calibrationState_E {
-  INIT,
-  LEFT,
-  RIGHT,
-  DONE
-};
+//-------- External object declairation-------------
+WiFiClient espClient;
+PubSubClient client(espClient);
 
-enum calibrationState_E calibration = INIT;
-int calibraionLocalSteps = 0;
-
+//----------State machine variables -----------------
 enum masterState_E {
   CALIBRATION,
   ROTATE_STEPPER,
@@ -60,13 +57,18 @@ enum masterState_E {
   SW_RIGHT,
   IDEL_ST
 };
-
 enum masterState_E masterState = CALIBRATION;
-//----------------------------------------------------------------------------------
-WiFiClient espClient;
-PubSubClient client(espClient);
 
-//----------------------------------------------------------------------------------
+enum calibrationState_E {
+  INIT,
+  LEFT,
+  RIGHT,
+  DONE
+};
+enum calibrationState_E calibration = INIT;
+int calibraionLocalSteps = 0;
+
+//---------------------------- Setup Function --------------------------------------
 void setup() {
   Serial.begin(115200);
   setup_wifi();
@@ -83,7 +85,7 @@ void setup() {
   pinMode(rightLimitSw, INPUT);
   digitalWrite(rightLimitSw, HIGH);
 
-  // setup two switches
+  // setup two push button switches
   pinMode(leftSw, INPUT);
   digitalWrite(leftSw, HIGH);
   pinMode(rightSw, INPUT);
@@ -92,11 +94,9 @@ void setup() {
   // setup connection with MQTT server 
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
-  
-  //ESP.wdtDisable();
 }
 
-//----------------------------------------------------------------------------------------------------
+//--------------------------------setup_OTA function --------------------------------------------
 void setup_OTA() {
   // Port defaults to 8266
   ArduinoOTA.setPort(8266);
@@ -126,7 +126,8 @@ void setup_OTA() {
   });
   ArduinoOTA.begin();
 }
-//----------------------------------------------------------------------------------------------------
+
+//---------------------------------- setup_wifi function ---------------------------------------
 void setup_wifi() {
 
   delay(10);
@@ -150,7 +151,8 @@ void setup_wifi() {
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
 }
-//----------------------------------------------------------------------------------------------------
+
+//----------------------------------- MQTT callback function --------------------------------------
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived new [");
   Serial.print(topic);
@@ -192,12 +194,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.println("MasterState:MQTT -> ROTATE_STEPPER right");
   }
   
-  masterStep = nextPositionSteps;
-  
-  client.publish("home/livingRoom/windowBlind/state", (char*)payload);
+  client.publish("home/livingRoom/windowBlind/state", blindPosition);
 }
 
-//----------------------------------------------------------------------------------------------------
+//------------------------------ MQTT reconnect function ---------------------------------------------
 void reconnect() {
   // Loop until we're reconnected
   while (!client.connected()) {
@@ -215,6 +215,7 @@ void reconnect() {
     }
   }
 }
+
 //----------------------------------------------------------------------------------------------------
 void disableStepper()
 {
@@ -270,6 +271,7 @@ void oneStep()
   digitalWrite(stepPin, LOW);
   delayMicroseconds(rotationSpeed); 
 }
+
 //----------------------------------------------------------------------------------------------------
 void calibrationStateMachine()
 {
@@ -311,16 +313,44 @@ void calibrationStateMachine()
           maxSteps = calibraionLocalSteps;
           // Since the blinds are at max position, set masterStep to max steps
           masterStep = calibraionLocalSteps;
+          calibration = DONE;
+          
           Serial.println("Max steps = ");
           Serial.println(maxSteps);
-          disableStepper();
-          calibration = DONE;
           Serial.println("Calibrating:DONE");
         }
     
     case DONE:
         disableStepper();
+        Serial.println("MasterState:Calibration ->IDEL_ST");
+        masterState = IDEL_ST;
   }  
+}
+
+//---------------------------------------------------------------------------------------------------
+void rotateStepperFunction()
+{
+  if( (currentSteps < requestedSteps) || (!isRightLimitReached()) || (!isLeftLimitReached()) || (!isLeftButtonPressed()) || (!isRightButtonPressed()) )
+  {
+    oneStep();
+    ++currentSteps;
+  }
+  else
+  {
+    if(digitalRead(dirPin, HIGH)) // Direction is left
+    {
+      masterStep = masterStep - currentSteps;
+    }
+    else  // Direction is right
+    {
+      masterStep = masterStep + currentSteps;
+    }
+    currentSteps = 0;
+    disableStepper();
+    masterState = IDEL_ST;
+    
+    Serial.println("MasterState:ROTATE_STEPPER -> IDEL_ST");
+  } 
 }
 
 //---------------------------------------------------------------------------------------------------
@@ -414,29 +444,10 @@ void masterStateMachine()
 {
   switch (masterState) {
     case CALIBRATION:
-      if(calibration != DONE)
-      {
-        calibrationStateMachine();
-      }
-      else
-      {
-        Serial.println("MasterState:Calibration ->IDEL_ST");
-        masterState = IDEL_ST;
-      }
+      calibrationStateMachine();
 
     case ROTATE_STEPPER:
-      if( (currentSteps < requestedSteps) || (!isRightLimitReached()) || (!isLeftLimitReached()) || (!isLeftButtonPressed()) || (!isRightButtonPressed()))
-      {
-        oneStep();
-        ++currentSteps;
-      }
-      else
-      {
-        Serial.println("MasterState:ROTATE_STEPPER -> IDEL_ST");
-        disableStepper();
-        currentSteps = 0;
-        masterState = IDEL_ST;
-      }
+      rotateStepperFunction();
     
     case SW_LEFT:
       leftSwFunction();
@@ -455,6 +466,7 @@ void masterStateMachine()
       }
   }
 }
+
 //----------------------------------------------------------------------------------------------------
 void loop() {
   // This function is called to receive OTA updates
