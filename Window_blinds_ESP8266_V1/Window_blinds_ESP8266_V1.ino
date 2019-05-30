@@ -27,6 +27,8 @@ const int rotationSpeed = 1000;
 
 char msg[50];
 int masterStep = 0;
+int requestedSteps = 0;
+int currentSteps = 0;
 int maxSteps = 0;
 
 unsigned long leftButtonPressedTime;
@@ -40,6 +42,27 @@ bool rightButtonPressedFlag = false;
 // long press time for button press
 const unsigned long longPressTime = 1000;
 
+//------------------------- State machine variables -------------------------------
+enum calibrationState_E {
+  INIT,
+  LEFT,
+  RIGHT,
+  DONE
+};
+
+enum calibrationState_E calibration = INIT;
+int calibraionLocalSteps = 0;
+
+enum masterState_E {
+  CALIBRATION,
+  ROTATE_STEPPER,
+  SW_LEFT,
+  SW_RIGHT,
+  IDEL_ST
+};
+
+enum masterState_E masterState = CALIBRATION;
+//----------------------------------------------------------------------------------
 WiFiClient espClient;
 PubSubClient client(espClient);
 
@@ -70,8 +93,7 @@ void setup() {
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
   
-  // Perform initial calibration to find min and max position
-  calibration();
+  //ESP.wdtDisable();
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -146,11 +168,30 @@ void callback(char* topic, byte* payload, unsigned int length) {
   
   // Map the value from % to no. steps
   int nextPositionSteps = map(blindPosition, 0, 100, 0, maxSteps);
+
+  requestedSteps = nextPositionSteps - masterStep;
+
+  if(requestedSteps = 0)
+  {
+    Serial.println("MasterState:MQTT -> IDEL_ST");
+    masterState = IDEL_ST;
+  }
+  else if(requestedSteps < 0)
+  {
+    requestedSteps = abs(requestedSteps);
+    masterState = ROTATE_STEPPER;
+    enableStepper();
+    directionLeft();
+    Serial.println("MasterState:MQTT -> ROTATE_STEPPER left");
+  }
+  else if(requestedSteps > 0)
+  {
+    masterState = ROTATE_STEPPER;
+    enableStepper();
+    directionRight();
+    Serial.println("MasterState:MQTT -> ROTATE_STEPPER right");
+  }
   
-  // send +ve or -ve steps to rotate motor to right
-  // if nextPositionSteps == masterStep, the 0 steps will be requested
-  rotateStepper(nextPositionSteps - masterStep);
-  // set the masterSteps to nextPositionSteps
   masterStep = nextPositionSteps;
   
   client.publish("home/livingRoom/windowBlind/state", (char*)payload);
@@ -230,90 +271,61 @@ void oneStep()
   delayMicroseconds(rotationSpeed); 
 }
 //----------------------------------------------------------------------------------------------------
-void calibration()
+void calibrationStateMachine()
 {
-  // Enable stepper driver
-  enableStepper();
-  // Set direction to counterclock / left
-  directionLeft();
+  switch (calibration) {
+    case INIT:
+      Serial.println("Calibrating: INIT");
+      // Enable stepper driver
+      enableStepper();
+      // Set direction to counterclock / left
+      directionLeft();
+      calibration = LEFT;
+      Serial.println("Calibrating:LEFT");
 
-  // Run the loop until left limit not reacehd
-  while(!isLeftLimitReached())
-  {
-    oneStep();
-  }
-
-  // Set direction to clockwise / right
-  directionRight();
-  int localSteps = 0;
-  // Run the loop until right limit not reached
-  while(!isRightLimitReached())
-  {
-    oneStep();
-    ++localSteps;
-  }
-  maxSteps = localSteps;
-  // Since the blinds are at max position, set masterStep to max steps
-  masterStep = localSteps;
-  
-  disableStepper();
+    case LEFT:
+     // Run the loop until left limit not reacehd
+      if(!isLeftLimitReached())
+      {
+        oneStep();
+        Serial.print(".");
+      }
+      else
+      {
+        directionRight();
+        // Set direction to clockwise / right
+        directionRight();
+        calibration = RIGHT;
+        Serial.println("Calibrating:RIGHT");
+      }
+      
+    case RIGHT:
+        // Run the loop until right limit not reached
+        if(!isRightLimitReached())
+        {
+          oneStep();
+          ++calibraionLocalSteps;
+        }
+        else
+        {
+          maxSteps = calibraionLocalSteps;
+          // Since the blinds are at max position, set masterStep to max steps
+          masterStep = calibraionLocalSteps;
+          Serial.println("Max steps = ");
+          Serial.println(maxSteps);
+          disableStepper();
+          calibration = DONE;
+          Serial.println("Calibrating:DONE");
+        }
+    
+    case DONE:
+        disableStepper();
+  }  
 }
 
 //---------------------------------------------------------------------------------------------------
-void rotateStepper(int requestedSteps)
+void leftSwFunction()
 {
-  // No movement needed, disable stepper
-  if (requestedSteps == 0)
-  {
-    disableStepper();
-    return;
-  }
-  
-  // -ve steps requested, rotate stepper to left towards -> 0%
-  else if(requestedSteps < 0)
-  {
-    enableStepper();
-    directionLeft();
-    int currentSteps = 0;
-    int absRequestedSteps = abs(requestedSteps);
-    // Rotate the motor untill we reach to desired step or at the left limit or if right button is pressed to stop
-    while( (currentSteps < absRequestedSteps) || (!isLeftLimitReached()) || (!isRightButtonPressed()) )
-    {
-      oneStep();
-      ++currentSteps;
-    }
-    disableStepper();
-  }
-  
-  // +ve steps requested, rotate stepper to right towards -> 100%
-  else if(requestedSteps > 0)
-  {
-    enableStepper();
-    directionRight();
-    int currentSteps = 0;
-    int absRequestedSteps = abs(requestedSteps);
-    // Rotate the motor untill we reach to desired step or at the right limit or if left button is pressed to stop
-    while( (currentSteps < absRequestedSteps) || (!isRightLimitReached()) || (!isLeftButtonPressed()) )
-    {
-      oneStep();
-      ++currentSteps;
-    }
-    disableStepper();
-  }
-}
-
-//----------------------------------------------------------------------------------------------------
-void loop() {
-  // This function is called to receive OTA updates
-  ArduinoOTA.handle();
-  
-  // if MQTT connection lost, reconnect
-  if (!client.connected()) {
-    reconnect();
-  }
-
-  // --------------- Application code ---------------------
-  // -------------- Left button code ---------------------
   // Left button just pressed, and right button is not pressed
   if(isLeftButtonPressed() && !leftButtonPressedFlag && !rightButtonPressedFlag)
   {
@@ -323,7 +335,10 @@ void loop() {
     if((leftButtonPressedTime - leftButtonReleasedTime) < 500)
     {
       // Set the blinds all the way to left
-      rotateStepper( 0 - masterStep );
+      requestedSteps = masterStep;
+      masterState = ROTATE_STEPPER;
+      enableStepper();
+      directionLeft();
     }
   }
   // Button pressed earlier, but not released
@@ -346,10 +361,14 @@ void loop() {
     leftButtonReleasedTime = millis();
     leftButtonPressedFlag = false;
     disableStepper();
+    Serial.println("MasterState:LeftSw ->IDEL_ST");
+    masterState = IDEL_ST;
   }
-  // -------------- End of Left button code ---------------------
-//----------------------------------------------------------------------------
-  // -------------- Right button code ---------------------
+}
+
+//---------------------------------------------------------------------------------------------------
+void rightSwFunction()
+{
   // Right button just pressed, and left button is not pressed 
   if(isRightButtonPressed() && !rightButtonPressedFlag && !leftButtonPressedFlag)
   {
@@ -359,7 +378,10 @@ void loop() {
     if((rightButtonPressedTime - rightButtonReleasedTime) < 500)
     {
       // Set the blinds all the way to right
-      rotateStepper( maxSteps - masterStep );
+      requestedSteps = maxSteps - masterStep;
+      masterState = ROTATE_STEPPER;
+      enableStepper();
+      directionRight();
     }
   }
   // Button pressed earlier, but not released
@@ -382,9 +404,69 @@ void loop() {
     rightButtonReleasedTime = millis();
     rightButtonPressedFlag = false;
     disableStepper();
+    Serial.println("MasterState:rightSw ->IDEL_ST");
+    masterState = IDEL_ST;
   }
-  // -------------- End of Right button code ---------------------
+}
+
+//---------------------------------------------------------------------------------------------------
+void masterStateMachine()
+{
+  switch (masterState) {
+    case CALIBRATION:
+      if(calibration != DONE)
+      {
+        calibrationStateMachine();
+      }
+      else
+      {
+        Serial.println("MasterState:Calibration ->IDEL_ST");
+        masterState = IDEL_ST;
+      }
+
+    case ROTATE_STEPPER:
+      if( (currentSteps < requestedSteps) || (!isRightLimitReached()) || (!isLeftLimitReached()) || (!isLeftButtonPressed()) || (!isRightButtonPressed()))
+      {
+        oneStep();
+        ++currentSteps;
+      }
+      else
+      {
+        Serial.println("MasterState:ROTATE_STEPPER -> IDEL_ST");
+        disableStepper();
+        currentSteps = 0;
+        masterState = IDEL_ST;
+      }
+    
+    case SW_LEFT:
+      leftSwFunction();
+
+    case SW_RIGHT:
+      rightSwFunction();
+
+    case IDEL_ST:      
+      if(isLeftButtonPressed())
+      {
+        masterState = SW_LEFT;
+      }
+      else if(isRightButtonPressed())
+      {
+        masterState = SW_RIGHT;
+      }
+  }
+}
+//----------------------------------------------------------------------------------------------------
+void loop() {
+  // This function is called to receive OTA updates
+  ArduinoOTA.handle();
   
+  // if MQTT connection lost, reconnect
+  if (!client.connected()) {
+    reconnect();
+  }
+
+  masterStateMachine();
+
   // Fixed delay of 10 mSec
   delay(10);
   // --------------- end Application code ---------------------
