@@ -14,6 +14,8 @@ const char* mqtt_pass           = "onkar20";
 const char* mqtt_device_name    = "ESP8266WindowBlind1";
 const char* ota_device_name     = "Living_Room_Window_Blind";
 const char* ota_password        = "onkar20";
+const char* mqtt_topic_command  = "home/livingRoom/windowBlind/command";
+const char* mqtt_topic_state    = "home/livingRoom/windowBlind/state";
 
 //-------------variable declaration ---------------------------------------------
 //-------Pin declaration---------------
@@ -65,7 +67,7 @@ enum calibrationState_E {
   RIGHT,
   DONE
 };
-enum calibrationState_E calibration = INIT;
+enum calibrationState_E calibrationState = INIT;
 int calibraionLocalSteps = 0;
 
 //---------------------------- Setup Function --------------------------------------
@@ -94,126 +96,6 @@ void setup() {
   // setup connection with MQTT server 
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
-}
-
-//--------------------------------setup_OTA function --------------------------------------------
-void setup_OTA() {
-  // Port defaults to 8266
-  ArduinoOTA.setPort(8266);
-
-  // Hostname defaults to esp8266-[ChipID]
-  ArduinoOTA.setHostname(ota_device_name);
-
-  // No authentication by default
-  ArduinoOTA.setPassword((const char *)ota_password);
-
-  ArduinoOTA.onStart([]() {
-    Serial.println("Start");
-  });
-  ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-    else if (error == OTA_END_ERROR) Serial.println("End Failed");
-  });
-  ArduinoOTA.begin();
-}
-
-//---------------------------------- setup_wifi function ---------------------------------------
-void setup_wifi() {
-
-  delay(10);
-  // We start by connecting to a WiFi network
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-  //for Light sleep
-  WiFi.mode(WIFI_STA);
-  wifi_set_sleep_type(LIGHT_SLEEP_T); 
-  
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-}
-
-//----------------------------------- MQTT callback function --------------------------------------
-void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived new [");
-  Serial.print(topic);
-  Serial.print("] ");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
-
-  String blindPosition_str = (char*)payload;
-  int blindPosition = blindPosition_str.toInt();
-  
-  // Constrain the value if it is out of range
-  blindPosition = constrain(blindPosition, 0, 100);
-  
-  // Map the value from % to no. steps
-  int nextPositionSteps = map(blindPosition, 0, 100, 0, maxSteps);
-
-  requestedSteps = nextPositionSteps - masterStep;
-
-  if(requestedSteps = 0)
-  {
-    Serial.println("MasterState:MQTT -> IDEL_ST");
-    masterState = IDEL_ST;
-  }
-  else if(requestedSteps < 0)
-  {
-    requestedSteps = abs(requestedSteps);
-    masterState = ROTATE_STEPPER;
-    enableStepper();
-    directionLeft();
-    Serial.println("MasterState:MQTT -> ROTATE_STEPPER left");
-  }
-  else if(requestedSteps > 0)
-  {
-    masterState = ROTATE_STEPPER;
-    enableStepper();
-    directionRight();
-    Serial.println("MasterState:MQTT -> ROTATE_STEPPER right");
-  }
-  
-  client.publish("home/livingRoom/windowBlind/state", blindPosition);
-}
-
-//------------------------------ MQTT reconnect function ---------------------------------------------
-void reconnect() {
-  // Loop until we're reconnected
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Attempt to connect
-    if (client.connect(mqtt_device_name, mqtt_uname, mqtt_pass)) {
-      Serial.println("connected");
-      client.subscribe("home/livingRoom/windowBlind/command");
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
-    }
-  }
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -272,17 +154,135 @@ void oneStep()
   delayMicroseconds(rotationSpeed); 
 }
 
+//---------------------------------- setup_wifi function ---------------------------------------
+void setup_wifi() {
+
+  delay(10);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  //for Light sleep
+  WiFi.mode(WIFI_STA);
+  wifi_set_sleep_type(LIGHT_SLEEP_T); 
+  
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+//--------------------------------setup_OTA function --------------------------------------------
+void setup_OTA() {
+  // Port defaults to 8266
+  ArduinoOTA.setPort(8266);
+
+  // Hostname defaults to esp8266-[ChipID]
+  ArduinoOTA.setHostname(ota_device_name);
+
+  // No authentication by default
+  ArduinoOTA.setPassword((const char *)ota_password);
+
+  ArduinoOTA.onStart([]() {
+    Serial.println("Start");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+  ArduinoOTA.begin();
+}
+
+//------------------------------ MQTT reconnect function ---------------------------------------------
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect(mqtt_device_name, mqtt_uname, mqtt_pass)) {
+      Serial.println("connected");
+      client.subscribe(mqtt_topic_command);
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+//----------------------------------- MQTT callback function --------------------------------------
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived new [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+
+  String blindPosition_str = (char*)payload;
+  int blindPosition = blindPosition_str.toInt();
+  
+  // Constrain the value if it is out of range
+  blindPosition = constrain(blindPosition, 0, 100);
+  
+  // Map the value from % to no. steps
+  int nextPositionSteps = map(blindPosition, 0, 100, 0, maxSteps);
+
+  requestedSteps = nextPositionSteps - masterStep;
+
+  if(requestedSteps = 0)
+  {
+    Serial.println("MasterState:MQTT -> IDEL_ST");
+    masterState = IDEL_ST;
+  }
+  else if(requestedSteps < 0)
+  {
+    requestedSteps = abs(requestedSteps);
+    directionLeft();
+    enableStepper();
+    masterState = ROTATE_STEPPER;
+    Serial.println("MasterState:MQTT -> ROTATE_STEPPER left");
+  }
+  else if(requestedSteps > 0)
+  {
+    directionRight();
+    enableStepper();
+    masterState = ROTATE_STEPPER;
+    Serial.println("MasterState:MQTT -> ROTATE_STEPPER right");
+  }
+}
+
 //----------------------------------------------------------------------------------------------------
 void calibrationStateMachine()
 {
-  switch (calibration) {
+  switch (calibrationState) {
     case INIT:
       Serial.println("Calibrating: INIT");
-      // Enable stepper driver
-      enableStepper();
       // Set direction to counterclock / left
       directionLeft();
-      calibration = LEFT;
+      // Enable stepper driver
+      enableStepper();
+      calibrationState = LEFT;
       Serial.println("Calibrating:LEFT");
 
     case LEFT:
@@ -297,7 +297,7 @@ void calibrationStateMachine()
         directionRight();
         // Set direction to clockwise / right
         directionRight();
-        calibration = RIGHT;
+        calibrationState = RIGHT;
         Serial.println("Calibrating:RIGHT");
       }
       
@@ -313,7 +313,7 @@ void calibrationStateMachine()
           maxSteps = calibraionLocalSteps;
           // Since the blinds are at max position, set masterStep to max steps
           masterStep = calibraionLocalSteps;
-          calibration = DONE;
+          calibrationState = DONE;
           
           Serial.println("Max steps = ");
           Serial.println(maxSteps);
@@ -345,6 +345,8 @@ void rotateStepperFunction()
     {
       masterStep = masterStep + currentSteps;
     }
+    // Send the current state of the blind in %
+    client.publish(mqtt_topic_state, (masterStep / maxSteps)*100);
     currentSteps = 0;
     disableStepper();
     masterState = IDEL_ST;
@@ -356,8 +358,8 @@ void rotateStepperFunction()
 //---------------------------------------------------------------------------------------------------
 void leftSwFunction()
 {
-  // Left button just pressed, and right button is not pressed
-  if(isLeftButtonPressed() && !leftButtonPressedFlag && !rightButtonPressedFlag)
+  // Left button just pressed, right button press is not possible
+  if( isLeftButtonPressed() && !leftButtonPressedFlag )
   {
     leftButtonPressedTime = millis();
     leftButtonPressedFlag = true;
@@ -366,9 +368,11 @@ void leftSwFunction()
     {
       // Set the blinds all the way to left
       requestedSteps = masterStep;
-      masterState = ROTATE_STEPPER;
-      enableStepper();
       directionLeft();
+      enableStepper();
+      masterState = ROTATE_STEPPER;
+      
+      Serial.println("MasterState:LeftSw ->ROTATE_STEPPER");
     }
   }
   // Button pressed earlier, but not released
@@ -385,14 +389,15 @@ void leftSwFunction()
     else
     {}
   }
-  // button just released 
+  // button just released
   else if(!isLeftButtonPressed() && leftButtonPressedFlag)
   {
     leftButtonReleasedTime = millis();
     leftButtonPressedFlag = false;
     disableStepper();
-    Serial.println("MasterState:LeftSw ->IDEL_ST");
     masterState = IDEL_ST;
+    
+    Serial.println("MasterState:LeftSw ->IDEL_ST");
   }
 }
 
@@ -409,9 +414,11 @@ void rightSwFunction()
     {
       // Set the blinds all the way to right
       requestedSteps = maxSteps - masterStep;
-      masterState = ROTATE_STEPPER;
-      enableStepper();
       directionRight();
+      enableStepper();
+      masterState = ROTATE_STEPPER;
+      
+      Serial.println("MasterState:rightSw ->ROTATE_STEPPER");
     }
   }
   // Button pressed earlier, but not released
@@ -479,9 +486,10 @@ void loop() {
 
   masterStateMachine();
 
-  // Fixed delay of 10 mSec
-  delay(10);
   // --------------- end Application code ---------------------
   // Required!!!, this is to check for new MQTT updates from server
   client.loop();
+  
+  // Fixed delay of 10 mSec
+  delay(10);
 }
