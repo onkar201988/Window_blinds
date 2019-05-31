@@ -5,6 +5,7 @@ extern "C" {
   #include "user_interface.h"
 }
 
+#define debug                   // comment this line to remove serial prints
 //-------------- String declairation--------------------------
 const char* ssid                = "LakeViewWiFi";
 const char* password            = "P@ssLakeView";
@@ -72,7 +73,9 @@ int calibraionLocalSteps = 0;
 
 //---------------------------- Setup Function --------------------------------------
 void setup() {
-  Serial.begin(115200);
+  #ifdef debug
+    Serial.begin(115200);
+  #endif
   setup_wifi();
   setup_OTA();
   
@@ -159,9 +162,11 @@ void setup_wifi() {
 
   delay(10);
   // We start by connecting to a WiFi network
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  #ifdef debug
+    Serial.println();
+    Serial.print("Connecting to ");
+    Serial.println(ssid);
+  #endif
   //for Light sleep
   WiFi.mode(WIFI_STA);
   wifi_set_sleep_type(LIGHT_SLEEP_T); 
@@ -170,13 +175,17 @@ void setup_wifi() {
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
+    #ifdef debug
+      Serial.print(".");
+    #endif
   }
 
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+  #ifdef debug
+    Serial.println("");
+    Serial.println("WiFi connected");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+  #endif
 }
 
 //--------------------------------setup_OTA function --------------------------------------------
@@ -190,23 +199,25 @@ void setup_OTA() {
   // No authentication by default
   ArduinoOTA.setPassword((const char *)ota_password);
 
-  ArduinoOTA.onStart([]() {
-    Serial.println("Start");
-  });
-  ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-    else if (error == OTA_END_ERROR) Serial.println("End Failed");
-  });
+  #ifdef debug
+    ArduinoOTA.onStart([]() {
+      Serial.println("Start");
+    });
+    ArduinoOTA.onEnd([]() {
+      Serial.println("\nEnd");
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
+      Serial.printf("Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+      else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    });
+  #endif
   ArduinoOTA.begin();
 }
 
@@ -214,15 +225,21 @@ void setup_OTA() {
 void reconnect() {
   // Loop until we're reconnected
   while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
+    #ifdef debug
+      Serial.print("Attempting MQTT connection...");
+    #endif
     // Attempt to connect
     if (client.connect(mqtt_device_name, mqtt_uname, mqtt_pass)) {
-      Serial.println("connected");
+      #ifdef debug
+        Serial.println("connected");
+      #endif
       client.subscribe(mqtt_topic_command);
     } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
+      #ifdef debug
+        Serial.print("failed, rc=");
+        Serial.print(client.state());
+        Serial.println(" try again in 5 seconds");
+      #endif
       // Wait 5 seconds before retrying
       delay(5000);
     }
@@ -231,42 +248,54 @@ void reconnect() {
 
 //----------------------------------- MQTT callback function --------------------------------------
 void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived new [");
-  Serial.print(topic);
-  Serial.print("] ");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
+  #ifdef debug
+    Serial.print("Message arrived new [");
+    Serial.print(topic);
+    Serial.print("] ");
+    for (int i = 0; i < length; i++) {
+      Serial.print((char)payload[i]);
+    }
+    Serial.println();
+  #endif
 
-  payload[length] = '\0'; // Make payload a string by NULL terminating it.
-  int blindPosition = atoi((char *)payload);
-  Serial.print("blindPosition int = ");
-  Serial.print(blindPosition);
-  Serial.println();
+  payload[length] = '\0';                     // Make payload a string by NULL terminating it.
+  int blindPosition = atoi((char *)payload);  // Convert string array to int 
+  #ifdef debug
+    Serial.print("blindPosition int = ");
+    Serial.print(blindPosition);
+    Serial.println();
+  #endif
   
   // Constrain the value if it is out of range
   blindPosition = constrain(blindPosition, 0, 100);
-  Serial.print("blindPosition constraint int = ");
-  Serial.print(blindPosition);
-  Serial.println();
+  #ifdef debug
+    Serial.print("blindPosition constraint int = ");
+    Serial.print(blindPosition);
+    Serial.println();
+  #endif
   
   // Map the value from % to no. steps
   int nextPositionSteps = map(blindPosition, 0, 100, 0, maxSteps);
 
-  Serial.print("nextPositionSteps = ");
-  Serial.print(nextPositionSteps);
-  Serial.println();
+  #ifdef debug
+    Serial.print("nextPositionSteps = ");
+    Serial.print(nextPositionSteps);
+    Serial.println();
+  #endif
   
   requestedSteps = nextPositionSteps - masterStep;
 
-  Serial.print("requestedSteps = ");
-  Serial.print(requestedSteps);
-  Serial.println();
+  #ifdef debug
+    Serial.print("requestedSteps = ");
+    Serial.print(requestedSteps);
+    Serial.println();
+  #endif
   
   if(requestedSteps == 0)
   {
-    Serial.println("MasterState:MQTT -> IDEL_ST");
+    #ifdef debug
+      Serial.println("MasterState:MQTT -> IDEL_ST");
+    #endif
     masterState = IDEL_ST;
   }
   else if(requestedSteps < 0)
@@ -275,14 +304,18 @@ void callback(char* topic, byte* payload, unsigned int length) {
     directionLeft();
     enableStepper();
     masterState = ROTATE_STEPPER;
-    Serial.println("MasterState:MQTT -> ROTATE_STEPPER left");
+    #ifdef debug
+      Serial.println("MasterState:MQTT -> ROTATE_STEPPER left");
+    #endif
   }
   else if(requestedSteps > 0)
   {
     directionRight();
     enableStepper();
     masterState = ROTATE_STEPPER;
-    Serial.println("MasterState:MQTT -> ROTATE_STEPPER right");
+    #ifdef debug
+      Serial.println("MasterState:MQTT -> ROTATE_STEPPER right");
+    #endif
   }
 }
 
@@ -291,13 +324,17 @@ void calibrationStateMachine()
 {
   switch (calibrationState) {
     case INIT:
-      Serial.println("Calibrating: INIT");
+      #ifdef debug
+        Serial.println("Calibrating: INIT");
+      #endif
       // Set direction to counterclock / left
       directionLeft();
       // Enable stepper driver
       enableStepper();
       calibrationState = LEFT;
-      Serial.println("Calibrating:LEFT");
+      #ifdef debug
+        Serial.println("Calibrating:LEFT");
+      #endif
       break;
 
     case LEFT:
@@ -305,7 +342,9 @@ void calibrationStateMachine()
       if(!isLeftLimitReached())
       {
         oneStep();
-        Serial.print("->");
+        #ifdef debug
+          Serial.print("->");
+        #endif
       }
       else
       {
@@ -313,7 +352,9 @@ void calibrationStateMachine()
         // Set direction to clockwise / right
         directionRight();
         calibrationState = RIGHT;
-        Serial.println("Calibrating:RIGHT");
+        #ifdef debug
+          Serial.println("Calibrating:RIGHT");
+        #endif
       }
       break;
       
@@ -323,7 +364,9 @@ void calibrationStateMachine()
         {
           oneStep();
           ++calibraionLocalSteps;
-          Serial.print("<-");
+          #ifdef debug
+            Serial.print("<-");
+          #endif
         }
         else
         {
@@ -332,15 +375,19 @@ void calibrationStateMachine()
           masterStep = calibraionLocalSteps;
           calibrationState = DONE;
           
-          Serial.println("Max steps = ");
-          Serial.println(maxSteps);
-          Serial.println("Calibrating:DONE");
+          #ifdef debug
+            Serial.println("Max steps = ");
+            Serial.println(maxSteps);
+            Serial.println("Calibrating:DONE");
+          #endif
         }
         break;
     
     case DONE:
         disableStepper();
-        Serial.println("MasterState:Calibration ->IDEL_ST");
+        #ifdef debug
+          Serial.println("MasterState:Calibration ->IDEL_ST");
+        #endif
         masterState = IDEL_ST;
         break;
 
@@ -368,16 +415,20 @@ void rotateStepperFunction()
       masterStep = masterStep + currentSteps;
     }
 
-    Serial.print("masterStep = ");
-    Serial.print(masterStep);
-    Serial.println();
+    #ifdef debug
+      Serial.print("masterStep = ");
+      Serial.print(masterStep);
+      Serial.println();
+    #endif
     // Send the current state of the blind in %
     client.publish(mqtt_topic_state, String((int)(((float)masterStep / (float)maxSteps)*100)).c_str());
     currentSteps = 0;
     disableStepper();
     masterState = IDEL_ST;
     
-    Serial.println("MasterState:ROTATE_STEPPER -> IDEL_ST");
+    #ifdef debug
+      Serial.println("MasterState:ROTATE_STEPPER -> IDEL_ST");
+    #endif
   } 
 }
 
@@ -398,7 +449,9 @@ void leftSwFunction()
       enableStepper();
       masterState = ROTATE_STEPPER;
       
-      Serial.println("MasterState:LeftSw ->ROTATE_STEPPER");
+      #ifdef debug
+        Serial.println("MasterState:LeftSw ->ROTATE_STEPPER");
+      #endif
     }
   }
   // Button pressed earlier, but not released
@@ -411,7 +464,9 @@ void leftSwFunction()
       enableStepper();
       oneStep();
 
-      Serial.println("MasterState:LeftSw Long press");
+      #ifdef debug
+        Serial.println("MasterState:LeftSw Long press");
+      #endif
     }
     // Do nothing
     else
@@ -425,7 +480,9 @@ void leftSwFunction()
     disableStepper();
     masterState = IDEL_ST;
     
-    Serial.println("MasterState:LeftSw ->IDEL_ST");
+    #ifdef debug
+      Serial.println("MasterState:LeftSw ->IDEL_ST");
+    #endif
   }
 }
 
@@ -446,7 +503,9 @@ void rightSwFunction()
       enableStepper();
       masterState = ROTATE_STEPPER;
       
-      Serial.println("MasterState:rightSw ->ROTATE_STEPPER");
+      #ifdef debug
+        Serial.println("MasterState:rightSw ->ROTATE_STEPPER");
+      #endif
     }
   }
   // Button pressed earlier, but not released
@@ -458,7 +517,9 @@ void rightSwFunction()
       directionRight();
       enableStepper();
       oneStep();
-      Serial.println("MasterState:RightSw Long press");
+      #ifdef debug
+        Serial.println("MasterState:RightSw Long press");
+      #endif
     }
     // Do nothing
     else
@@ -470,7 +531,9 @@ void rightSwFunction()
     rightButtonReleasedTime = millis();
     rightButtonPressedFlag = false;
     disableStepper();
-    Serial.println("MasterState:rightSw ->IDEL_ST");
+    #ifdef debug
+      Serial.println("MasterState:rightSw ->IDEL_ST");
+    #endif
     masterState = IDEL_ST;
   }
 }
