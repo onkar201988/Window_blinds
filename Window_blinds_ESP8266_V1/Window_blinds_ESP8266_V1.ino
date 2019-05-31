@@ -239,18 +239,32 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
   Serial.println();
 
-  String blindPosition_str = (char*)payload;
-  int blindPosition = blindPosition_str.toInt();
+  payload[length] = '\0'; // Make payload a string by NULL terminating it.
+  int blindPosition = atoi((char *)payload);
+  Serial.print("blindPosition int = ");
+  Serial.print(blindPosition);
+  Serial.println();
   
   // Constrain the value if it is out of range
   blindPosition = constrain(blindPosition, 0, 100);
+  Serial.print("blindPosition constraint int = ");
+  Serial.print(blindPosition);
+  Serial.println();
   
   // Map the value from % to no. steps
   int nextPositionSteps = map(blindPosition, 0, 100, 0, maxSteps);
 
+  Serial.print("nextPositionSteps = ");
+  Serial.print(nextPositionSteps);
+  Serial.println();
+  
   requestedSteps = nextPositionSteps - masterStep;
 
-  if(requestedSteps = 0)
+  Serial.print("requestedSteps = ");
+  Serial.print(requestedSteps);
+  Serial.println();
+  
+  if(requestedSteps == 0)
   {
     Serial.println("MasterState:MQTT -> IDEL_ST");
     masterState = IDEL_ST;
@@ -284,13 +298,14 @@ void calibrationStateMachine()
       enableStepper();
       calibrationState = LEFT;
       Serial.println("Calibrating:LEFT");
+      break;
 
     case LEFT:
      // Run the loop until left limit not reacehd
       if(!isLeftLimitReached())
       {
         oneStep();
-        Serial.print(".");
+        Serial.print("->");
       }
       else
       {
@@ -300,6 +315,7 @@ void calibrationStateMachine()
         calibrationState = RIGHT;
         Serial.println("Calibrating:RIGHT");
       }
+      break;
       
     case RIGHT:
         // Run the loop until right limit not reached
@@ -307,6 +323,7 @@ void calibrationStateMachine()
         {
           oneStep();
           ++calibraionLocalSteps;
+          Serial.print("<-");
         }
         else
         {
@@ -319,25 +336,30 @@ void calibrationStateMachine()
           Serial.println(maxSteps);
           Serial.println("Calibrating:DONE");
         }
+        break;
     
     case DONE:
         disableStepper();
         Serial.println("MasterState:Calibration ->IDEL_ST");
         masterState = IDEL_ST;
+        break;
+
+    default:
+        break;
   }  
 }
 
 //---------------------------------------------------------------------------------------------------
 void rotateStepperFunction()
 {
-  if( (currentSteps < requestedSteps) || (!isRightLimitReached()) || (!isLeftLimitReached()) || (!isLeftButtonPressed()) || (!isRightButtonPressed()) )
+  if( (currentSteps < requestedSteps) || (!isRightLimitReached()) || (!isLeftLimitReached()) /*|| (isLeftButtonPressed()) || (isRightButtonPressed())*/ )
   {
     oneStep();
     ++currentSteps;
   }
   else
   {
-    if(digitalRead(dirPin, HIGH)) // Direction is left
+    if(digitalRead(dirPin)) // Direction is left
     {
       masterStep = masterStep - currentSteps;
     }
@@ -345,8 +367,12 @@ void rotateStepperFunction()
     {
       masterStep = masterStep + currentSteps;
     }
+
+    Serial.print("masterStep = ");
+    Serial.print(masterStep);
+    Serial.println();
     // Send the current state of the blind in %
-    client.publish(mqtt_topic_state, (masterStep / maxSteps)*100);
+    client.publish(mqtt_topic_state, String((int)(((float)masterStep / (float)maxSteps)*100)).c_str());
     currentSteps = 0;
     disableStepper();
     masterState = IDEL_ST;
@@ -384,6 +410,8 @@ void leftSwFunction()
       directionLeft();
       enableStepper();
       oneStep();
+
+      Serial.println("MasterState:LeftSw Long press");
     }
     // Do nothing
     else
@@ -430,6 +458,7 @@ void rightSwFunction()
       directionRight();
       enableStepper();
       oneStep();
+      Serial.println("MasterState:RightSw Long press");
     }
     // Do nothing
     else
@@ -452,15 +481,19 @@ void masterStateMachine()
   switch (masterState) {
     case CALIBRATION:
       calibrationStateMachine();
+      break;
 
     case ROTATE_STEPPER:
       rotateStepperFunction();
+      break;
     
     case SW_LEFT:
       leftSwFunction();
+      break;
 
     case SW_RIGHT:
       rightSwFunction();
+      break;
 
     case IDEL_ST:      
       if(isLeftButtonPressed())
@@ -471,6 +504,9 @@ void masterStateMachine()
       {
         masterState = SW_RIGHT;
       }
+      // Required!!!, this is to check for new MQTT updates from server
+      client.loop();
+      break;
   }
 }
 
@@ -487,8 +523,7 @@ void loop() {
   masterStateMachine();
 
   // --------------- end Application code ---------------------
-  // Required!!!, this is to check for new MQTT updates from server
-  client.loop();
+  
   
   // Fixed delay of 10 mSec
   delay(10);
