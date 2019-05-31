@@ -399,7 +399,7 @@ void calibrationStateMachine()
 //---------------------------------------------------------------------------------------------------
 void rotateStepperFunction()
 {
-  if( (currentSteps < requestedSteps) || (!isRightLimitReached()) || (!isLeftLimitReached()) /*|| (isLeftButtonPressed()) || (isRightButtonPressed())*/ )
+  if( (currentSteps < requestedSteps) && (!isRightLimitReached()) && (!isLeftLimitReached()) && (!isLeftButtonPressed()) && (!isRightButtonPressed()) )
   {
     oneStep();
     ++currentSteps;
@@ -458,11 +458,13 @@ void leftSwFunction()
   else if(isLeftButtonPressed() && leftButtonPressedFlag)
   {
     // If button pressed for longer time, then start moving the blinds to left until button is pressed
-    if( (millis() - leftButtonPressedTime) > longPressTime)
+    if( ((millis() - leftButtonPressedTime) > longPressTime) && (0 != masterStep) )
     {
       directionLeft();
       enableStepper();
       oneStep();
+      // Update master steps along with motor rotation
+      masterStep--;
 
       #ifdef debug
         Serial.println("MasterState:LeftSw Long press");
@@ -479,6 +481,8 @@ void leftSwFunction()
     leftButtonPressedFlag = false;
     disableStepper();
     masterState = IDEL_ST;
+    // Send the current state of the blind in % since long press might be used
+    client.publish(mqtt_topic_state, String((int)(((float)masterStep / (float)maxSteps)*100)).c_str());
     
     #ifdef debug
       Serial.println("MasterState:LeftSw ->IDEL_ST");
@@ -511,12 +515,16 @@ void rightSwFunction()
   // Button pressed earlier, but not released
   else if(isRightButtonPressed() && rightButtonPressedFlag)
   {
-    // If button pressed for longer time, then start moving the blinds to right until button is pressed
-    if( (millis() - rightButtonPressedTime) > longPressTime)
+    // If button pressed for longer time, then start moving the blinds to right until button is pressed 
+    // or masterSteps != maxSteps
+    if( ((millis() - rightButtonPressedTime) > longPressTime) && (maxSteps != masterStep) )
     {
       directionRight();
       enableStepper();
       oneStep();
+      // Update master steps along with motor rotation
+      masterStep++;
+      
       #ifdef debug
         Serial.println("MasterState:RightSw Long press");
       #endif
@@ -531,6 +539,9 @@ void rightSwFunction()
     rightButtonReleasedTime = millis();
     rightButtonPressedFlag = false;
     disableStepper();
+    // Send the current state of the blind in % since long press might be used
+    client.publish(mqtt_topic_state, String((int)(((float)masterStep / (float)maxSteps)*100)).c_str());
+    
     #ifdef debug
       Serial.println("MasterState:rightSw ->IDEL_ST");
     #endif
