@@ -5,7 +5,7 @@ extern "C" {
   #include "user_interface.h"
 }
 
-#define debug                   // comment this line to remove serial prints
+//#define debug                   // comment this line to remove serial prints
 //-------------- String declairation--------------------------
 const char* ssid                = "LakeViewWiFi";
 const char* password            = "P@ssLakeView";
@@ -46,7 +46,7 @@ bool rightButtonPressedFlag = false;    // Flag to store when button is pressed
 //-------- Global const parameters ------------
 // long press time for button press
 const unsigned long longPressTime   = 1000; // Time for switch must be pressed
-const int rotationSpeed             = 1000; // Delay between two steps
+const int rotationSpeed             = 500; // Delay between two steps
 
 //-------- External object declairation-------------
 WiFiClient espClient;
@@ -85,16 +85,12 @@ void setup() {
   pinMode(enablePin, OUTPUT);
   
   // Setup limit switches
-  pinMode(leftLimitSw, INPUT);
-  digitalWrite(leftLimitSw, HIGH);
-  pinMode(rightLimitSw, INPUT);
-  digitalWrite(rightLimitSw, HIGH);
+  pinMode(leftLimitSw, INPUT_PULLUP);
+  pinMode(rightLimitSw, INPUT_PULLUP);
 
   // setup two push button switches
-  pinMode(leftSw, INPUT);
-  digitalWrite(leftSw, HIGH);
-  pinMode(rightSw, INPUT);
-  digitalWrite(rightSw, HIGH);
+  pinMode(leftSw, INPUT_PULLUP);
+  pinMode(rightSw, INPUT_PULLUP);
   
   // setup connection with MQTT server 
   client.setServer(mqtt_server, 1883);
@@ -399,7 +395,7 @@ void calibrationStateMachine()
 //---------------------------------------------------------------------------------------------------
 void rotateStepperFunction()
 {
-  if( (currentSteps < requestedSteps) && (!isRightLimitReached()) && (!isLeftLimitReached()) && (!isLeftButtonPressed()) && (!isRightButtonPressed()) )
+  if( (currentSteps < requestedSteps) && (!isRightLimitReached()) && (!isLeftLimitReached()) /* && (!isLeftButtonPressed()) && (!isRightButtonPressed())*/ )
   {
     oneStep();
     ++currentSteps;
@@ -570,14 +566,14 @@ void masterStateMachine()
       break;
 
     case IDEL_ST:      
-      if(isLeftButtonPressed())
-      {
-        masterState = SW_LEFT;
-      }
-      else if(isRightButtonPressed())
-      {
-        masterState = SW_RIGHT;
-      }
+//      if(isLeftButtonPressed())
+//      {
+//        masterState = SW_LEFT;
+//      }
+//      else if(isRightButtonPressed())
+//      {
+//        masterState = SW_RIGHT;
+//      }
       // Required!!!, this is to check for new MQTT updates from server
       client.loop();
       break;
