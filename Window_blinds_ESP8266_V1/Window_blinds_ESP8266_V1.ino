@@ -419,6 +419,7 @@ void rotateStepperFunction()
     // Send the current state of the blind in %
     client.publish(mqtt_topic_state, String((int)(((float)masterStep / (float)maxSteps)*100)).c_str());
     currentSteps = 0;
+    requestedSteps = 0;
     disableStepper();
     masterState = IDEL_ST;
     
