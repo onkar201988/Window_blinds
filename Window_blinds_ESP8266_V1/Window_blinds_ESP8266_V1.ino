@@ -31,8 +31,8 @@ const int rightSw         = 14;
 //------------ Global variables -------
 char msg[50];
 int masterStep            = 0;  // Holds the current position of motor in steps
-int requestedSteps        = 0;  // Number of steps to left or right requested
-int currentSteps          = 0;  // Current counter of steps, to reach requestedSteps
+int nextPositionSteps     = 0;  // Number of steps to left or right requested
+//int currentSteps          = 0;  // Current counter of steps, to reach nextPositionSteps
 int maxSteps              = 0;  // Right limit for motor in steps
 
 unsigned long leftButtonPressedTime;  // Time stamp when button is pressed
@@ -46,7 +46,7 @@ bool rightButtonPressedFlag = false;    // Flag to store when button is pressed
 //-------- Global const parameters ------------
 // long press time for button press
 const unsigned long longPressTime   = 1000; // Time for switch must be pressed
-const int rotationSpeed             = 500; // Delay between two steps
+const int rotationSpeed             = 200; // Delay between two steps
 
 //-------- External object declairation-------------
 WiFiClient espClient;
@@ -69,7 +69,7 @@ enum calibrationState_E {
   DONE
 };
 enum calibrationState_E calibrationState = INIT;
-int calibraionLocalSteps = 0;
+int calibrationLocalSteps = 0;
 
 //---------------------------- Setup Function --------------------------------------
 void setup() {
@@ -271,7 +271,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   #endif
   
   // Map the value from % to no. steps
-  int nextPositionSteps = map(blindPosition, 0, 100, 0, maxSteps);
+  nextPositionSteps = map(blindPosition, 0, 100, 0, maxSteps);
 
   #ifdef debug
     Serial.print("nextPositionSteps = ");
@@ -279,24 +279,15 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.println();
   #endif
   
-  requestedSteps = nextPositionSteps - masterStep;
-
-  #ifdef debug
-    Serial.print("requestedSteps = ");
-    Serial.print(requestedSteps);
-    Serial.println();
-  #endif
-  
-  if(requestedSteps == 0)
+  if(nextPositionSteps == masterStep)
   {
     #ifdef debug
       Serial.println("MasterState:MQTT -> IDEL_ST");
     #endif
     masterState = IDEL_ST;
   }
-  else if(requestedSteps < 0)
+  else if(nextPositionSteps < masterStep)
   {
-    requestedSteps = abs(requestedSteps);
     directionLeft();
     enableStepper();
     masterState = ROTATE_STEPPER;
@@ -304,7 +295,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
       Serial.println("MasterState:MQTT -> ROTATE_STEPPER left");
     #endif
   }
-  else if(requestedSteps > 0)
+  else if(nextPositionSteps > masterStep)
   {
     directionRight();
     enableStepper();
@@ -359,16 +350,16 @@ void calibrationStateMachine()
         if(!isRightLimitReached())
         {
           oneStep();
-          ++calibraionLocalSteps;
+          ++calibrationLocalSteps;
           #ifdef debug
             Serial.print("<-");
           #endif
         }
         else
         {
-          maxSteps = calibraionLocalSteps;
+          maxSteps = calibrationLocalSteps;
           // Since the blinds are at max position, set masterStep to max steps
-          masterStep = calibraionLocalSteps;
+          masterStep = calibrationLocalSteps;
           calibrationState = DONE;
           
           #ifdef debug
@@ -395,38 +386,56 @@ void calibrationStateMachine()
 //---------------------------------------------------------------------------------------------------
 void rotateStepperFunction()
 {
-  if( (currentSteps < requestedSteps) && (!isRightLimitReached()) && (!isLeftLimitReached()) /* && (!isLeftButtonPressed()) && (!isRightButtonPressed())*/ )
+  if(digitalRead(dirPin)) // Direction is left
   {
-    oneStep();
-    ++currentSteps;
+    if( ( masterStep > nextPositionSteps) && (!isLeftLimitReached()))
+    {
+      oneStep();
+      --masterStep;
+    }
+    else
+    {
+      #ifdef debug
+        Serial.print("masterStep = ");
+        Serial.print(masterStep);
+        Serial.println();
+      #endif
+      // Send the current state of the blind in %
+      client.publish(mqtt_topic_state, String((int)(((float)masterStep / (float)maxSteps)*100)).c_str());
+
+      disableStepper();
+      masterState = IDEL_ST;
+      
+      #ifdef debug
+        Serial.println("MasterState:ROTATE_STEPPER -> IDEL_ST");
+      #endif
+    }
   }
   else
   {
-    if(digitalRead(dirPin)) // Direction is left
+    if( ( masterStep < nextPositionSteps) && (!isRightLimitReached()) )
     {
-      masterStep = masterStep - currentSteps;
+      oneStep();
+      ++masterStep;
     }
-    else  // Direction is right
+    else
     {
-      masterStep = masterStep + currentSteps;
-    }
+      #ifdef debug
+        Serial.print("masterStep = ");
+        Serial.print(masterStep);
+        Serial.println();
+      #endif
+      // Send the current state of the blind in %
+      client.publish(mqtt_topic_state, String((int)(((float)masterStep / (float)maxSteps)*100)).c_str());
 
-    #ifdef debug
-      Serial.print("masterStep = ");
-      Serial.print(masterStep);
-      Serial.println();
-    #endif
-    // Send the current state of the blind in %
-    client.publish(mqtt_topic_state, String((int)(((float)masterStep / (float)maxSteps)*100)).c_str());
-    currentSteps = 0;
-    requestedSteps = 0;
-    disableStepper();
-    masterState = IDEL_ST;
-    
-    #ifdef debug
-      Serial.println("MasterState:ROTATE_STEPPER -> IDEL_ST");
-    #endif
-  } 
+      disableStepper();
+      masterState = IDEL_ST;
+      
+      #ifdef debug
+        Serial.println("MasterState:ROTATE_STEPPER -> IDEL_ST");
+      #endif
+    }
+  }
 }
 
 //---------------------------------------------------------------------------------------------------
@@ -441,7 +450,7 @@ void leftSwFunction()
     if((leftButtonPressedTime - leftButtonReleasedTime) < 500)
     {
       // Set the blinds all the way to left
-      requestedSteps = masterStep;
+      nextPositionSteps = masterStep;
       directionLeft();
       enableStepper();
       masterState = ROTATE_STEPPER;
@@ -499,7 +508,7 @@ void rightSwFunction()
     if((rightButtonPressedTime - rightButtonReleasedTime) < 500)
     {
       // Set the blinds all the way to right
-      requestedSteps = maxSteps - masterStep;
+      nextPositionSteps = maxSteps - masterStep;
       directionRight();
       enableStepper();
       masterState = ROTATE_STEPPER;
@@ -566,7 +575,7 @@ void masterStateMachine()
       rightSwFunction();
       break;
 
-    case IDEL_ST:      
+    case IDEL_ST:
 //      if(isLeftButtonPressed())
 //      {
 //        masterState = SW_LEFT;
@@ -575,8 +584,6 @@ void masterStateMachine()
 //      {
 //        masterState = SW_RIGHT;
 //      }
-      // Required!!!, this is to check for new MQTT updates from server
-      client.loop();
       break;
   }
 }
@@ -585,17 +592,20 @@ void masterStateMachine()
 void loop() {
   // This function is called to receive OTA updates
   ArduinoOTA.handle();
-  
-  // if MQTT connection lost, reconnect
-  if (!client.connected()) {
-    reconnect();
-  }
 
   masterStateMachine();
 
   // --------------- end Application code ---------------------
-  
-  
+  // Required!!!, this is to check for new MQTT updates from server
+  if(masterState != CALIBRATION)
+  {
+    // if MQTT connection lost, reconnect
+    if (!client.connected()) {
+      reconnect();
+    }
+    
+    client.loop();
+  }
   // Fixed delay of 10 mSec
   delay(10);
 }
